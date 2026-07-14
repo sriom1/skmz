@@ -6,7 +6,7 @@ on:
   push:
     branches:
       - main
-      - master
+      - master 
       - develop
   pull_request:
     types: [opened, synchronize, reopened]
@@ -28,7 +28,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
       - name: Install Python dependencies
         run: |
