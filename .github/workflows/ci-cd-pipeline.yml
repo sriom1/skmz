@@ -175,3 +175,38 @@ jobs:
         with:
           name: docker-image
           path: image.tar
+
+  # ---------------------------------------------------------------------
+  # Stage 7: Push Artifact — publish the image to Docker Hub
+  # ---------------------------------------------------------------------
+  push_artifact:
+    name: "7. Push Artifact to Docker Hub"
+    needs: package
+    # Only publish from master pushes — PRs (esp. from forks) have no secrets.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download image tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load Docker image
+        run: docker load -i image.tar
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag and push to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          REMOTE="${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
+          docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${REMOTE}:${IMAGE_TAG}"
+          docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${REMOTE}:latest"
+          docker push "${REMOTE}:${IMAGE_TAG}"
+          docker push "${REMOTE}:latest"
+          echo "Published ${REMOTE}:${IMAGE_TAG} and ${REMOTE}:latest"
