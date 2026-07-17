@@ -27,5 +27,6 @@ def average(values: list[float]) -> float:
 def safe_divide(numerator: float, denominator: float) -> float | None:
     """Divide two numbers, returning None instead of raising on divide-by-zero."""
     if denominator == 0:
+        print("Warning: Attempted to divide by zero. Returning None.")
         return None
     return numerator / denominator
