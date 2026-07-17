@@ -1,0 +1,187 @@
+name: CI/CD Pipeline
+
+# Stages 2, 4, 5, 6 of the pipeline. Code Quality (stage 3) is handled by the
+# separate "Build" workflow (sonarqube.yml) so Sonar is not scanned twice.
+# Push (7) and deploy (8-14) are intentionally omitted until Docker Hub /
+# Kubernetes / Grafana secrets exist — see sonar-setup/ for those stages.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: skmz
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Stage 2: Build — compile Go server & build React app
+  # ---------------------------------------------------------------------
+  build:
+    name: "2. Build - Compile Go server & React app"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Build Go server
+        working-directory: server
+        run: |
+          go mod download
+          go build -o /dev/null ./...
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "16"
+          cache: "npm"
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Build React app
+        working-directory: webapp
+        run: |
+          npm ci
+          CI=true npm run build
+
+  # ---------------------------------------------------------------------
+  # Stage 4: Unit Testing — execute tests, generate JUnit reports
+  # ---------------------------------------------------------------------
+  unit_test:
+    name: "4. Unit Testing"
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      # Go equivalent of "mvn test": run tests and emit a JUnit XML report.
+      - name: Run Go tests (with JUnit report)
+        working-directory: server
+        run: |
+          go install github.com/jstemmer/go-junit-report/v2@latest
+          go test ./... -v -coverprofile=coverage.out -covermode=atomic 2>&1 \
+            | tee go-test.log \
+            | "$(go env GOPATH)/bin/go-junit-report" -set-exit-code > go-test-report.xml
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "16"
+          cache: "npm"
+          cache-dependency-path: webapp/package-lock.json
+
+      # "npm test": run React tests and emit a JUnit XML report via jest-junit.
+      - name: Run React tests (with JUnit report)
+        working-directory: webapp
+        env:
+          JEST_JUNIT_OUTPUT_DIR: ./
+          JEST_JUNIT_OUTPUT_NAME: js-test-report.xml
+        run: |
+          npm ci
+          npm i --no-save jest-junit
+          CI=true npm test -- --coverage --watchAll=false \
+            --reporters=default --reporters=jest-junit
+
+      - name: Upload test reports
+        if: always() # publish reports even when a test fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            server/go-test-report.xml
+            server/coverage.out
+            webapp/js-test-report.xml
+            webapp/coverage/lcov.info
+
+  # ---------------------------------------------------------------------
+  # Stage 5: Security Scanning — dependency scan via Trivy
+  # ---------------------------------------------------------------------
+  security_scan:
+    name: "5. Security Scanning (Trivy)"
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Trivy filesystem/dependency scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "CRITICAL,HIGH"
+          exit-code: "0" # set to "1" once you want the pipeline to hard-fail on findings
+          format: "table"
+          output: "trivy-fs-report.txt"
+
+      - name: Upload dependency scan report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-fs-report
+          path: trivy-fs-report.txt
+
+  # ---------------------------------------------------------------------
+  # Stage 6: Package / Artifact Creation — build Docker image (no push yet)
+  # ---------------------------------------------------------------------
+  package:
+    name: "6. Package - Docker Image"
+    needs: [unit_test, security_scan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+            ${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy container image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: "${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          severity: "CRITICAL,HIGH"
+          exit-code: "0"
+          format: "table"
+          output: "trivy-image-report.txt"
+
+      - name: Upload image scan report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-report
+          path: trivy-image-report.txt
+
+      - name: Save image as artifact
+        run: docker save ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} -o image.tar
+
+      - name: Upload image tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: image.tar
