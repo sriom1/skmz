@@ -1,0 +1,10 @@
+{
+  "name": "dev",
+  "values": [
+    {
+      "key": "base_url",
+      "value": "https://dev.app.company.com",
+      "enabled": true
+    }
+  ]
+}

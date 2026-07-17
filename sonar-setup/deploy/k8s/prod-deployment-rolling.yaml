@@ -1,0 +1,63 @@
+# Used when vars.PROD_DEPLOY_STRATEGY != 'blue-green'
+# Standard Kubernetes rolling update — default strategy, safe zero-downtime
+# rollout with configurable surge/unavailability.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-prod
+  labels:
+    app: app-prod
+    env: prod
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: app-prod
+  template:
+    metadata:
+      labels:
+        app: app-prod
+    spec:
+      containers:
+        - name: app
+          image: ${IMAGE_NAME}:${IMAGE_TAG}
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-prod
+  labels:
+    env: prod
+spec:
+  selector:
+    app: app-prod
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: LoadBalancer

@@ -1,0 +1,116 @@
+# Used when vars.PROD_DEPLOY_STRATEGY == 'blue-green'
+# Apply this ONCE manually to bootstrap both colors; scripts/blue-green-deploy.sh
+# then only updates the image on whichever color is currently idle and flips
+# the Service selector between them. Do not re-apply this whole file from the
+# pipeline — it would reset both colors to the same image and defeat the point.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-prod-blue
+  labels:
+    app: app-prod
+    color: blue
+    env: prod
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: app-prod
+      color: blue
+  template:
+    metadata:
+      labels:
+        app: app-prod
+        color: blue
+    spec:
+      containers:
+        - name: app
+          image: ${IMAGE_NAME}:bootstrap
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-prod-green
+  labels:
+    app: app-prod
+    color: green
+    env: prod
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: app-prod
+      color: green
+  template:
+    metadata:
+      labels:
+        app: app-prod
+        color: green
+    spec:
+      containers:
+        - name: app
+          image: ${IMAGE_NAME}:bootstrap
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+# Headless-style per-color services, used internally by the health check
+# in scripts/blue-green-deploy.sh
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-prod-blue
+  labels:
+    env: prod
+spec:
+  selector:
+    app: app-prod
+    color: blue
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-prod-green
+  labels:
+    env: prod
+spec:
+  selector:
+    app: app-prod
+    color: green
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+# The live-traffic Service — its selector.color gets flipped between
+# "blue" and "green" by scripts/blue-green-deploy.sh
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-prod
+  labels:
+    env: prod
+spec:
+  selector:
+    app: app-prod
+    color: blue # initial live color; flipped at deploy time by the script
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: LoadBalancer

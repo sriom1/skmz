@@ -1,0 +1,77 @@
+{
+  "info": {
+    "name": "skmz Health & Integration Checks",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Web App Reachable (/)",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('Response time is acceptable', function () {",
+              "  pm.expect(pm.response.responseTime).to.be.below(2000);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "GraphQL Playground Reachable (/playground)",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/playground"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Playground served', function () {",
+              "  pm.response.to.have.status(200);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "GraphQL API Query (/query)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"query\":\"{ __typename }\"}"
+        },
+        "url": "{{base_url}}/query"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('GraphQL endpoint responds 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('GraphQL returns data (DB path exercised)', function () {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property('data');",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

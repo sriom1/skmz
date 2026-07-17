@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-dev
+  labels:
+    app: app-dev
+    env: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-dev
+  template:
+    metadata:
+      labels:
+        app: app-dev
+    spec:
+      containers:
+        - name: app
+          image: ${IMAGE_NAME}:${IMAGE_TAG}
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-dev
+  labels:
+    env: dev
+spec:
+  selector:
+    app: app-dev
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: ClusterIP
